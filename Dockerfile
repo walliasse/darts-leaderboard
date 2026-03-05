@@ -1,16 +1,17 @@
 # Stage 1: Build the app
-FROM node:20-alpine AS build
+FROM node:20 AS build
 WORKDIR /app
 
 # Install dependencies separately to leverage Docker cache
+# Using npm ci for a clean, deterministic install from package-lock.json
 COPY package*.json ./
-RUN npm install
+RUN npm ci
 
 # Copy source and build
 COPY . .
 RUN npm run build
 
-# Stage 2: Serve the app with Nginx
+# Stage 2: Serve the app with Nginx (Alpine is fine for serving)
 FROM nginx:alpine
 
 # Copy built assets from Stage 1
