@@ -4,8 +4,6 @@ dist
 .gitignore
 .dockerignore
 README.md
-Dockerfile
-nginx.conf
 .agents
 .agent
 _agents
