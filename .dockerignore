@@ -13,7 +13,3 @@ _agent
 brain
 tmp
 *.md
-.eslint*
-.prettier*
-tsconfig*
-vite.config.ts
