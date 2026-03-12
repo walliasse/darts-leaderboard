@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
-import { Trophy, Crosshair, Users, History } from 'lucide-react';
+import { Trophy, Crosshair, Users, History, Dices } from 'lucide-react';
 import { Leaderboard } from './components/Leaderboard';
 import { MatchEntry } from './components/MatchEntry';
 import { PlayerManager } from './components/PlayerManager';
 import { MatchHistory } from './components/MatchHistory';
+import { CricketGame } from './cricket/CricketGame';
 import { getPlayers, getMatches } from './lib/storage';
 import type { Player, Match } from './lib/storage';
 
-type Tab = 'leaderboard' | 'match' | 'players' | 'history';
+type Tab = 'leaderboard' | 'match' | 'players' | 'history' | 'cricket';
 
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>('leaderboard');
@@ -15,12 +16,12 @@ function App() {
   const [matches, setMatches] = useState<Match[]>([]);
   const [editingMatch, setEditingMatch] = useState<Match | null>(null);
 
-  const refreshData = () => {
-    const freshPlayers = getPlayers();
+  const refreshData = async () => {
+    const freshPlayers = await getPlayers();
     freshPlayers.sort((a, b) => b.elo - a.elo);
     setPlayers(freshPlayers);
 
-    const freshMatches = getMatches();
+    const freshMatches = await getMatches();
     setMatches(freshMatches);
   };
 
@@ -71,6 +72,7 @@ function App() {
             onEdit={handleEditMatch}
           />
         )}
+        {activeTab === 'cricket' && <CricketGame />}
       </main>
 
       <nav className="sticky bottom-0 border-t border-white/5 bg-slate-950/80 backdrop-blur-xl pb-safe pt-2 px-2 z-10">
@@ -98,6 +100,12 @@ function App() {
             onClick={() => setActiveTab('players')}
             icon={<Users className="w-5 h-5" />}
             label="Amis"
+          />
+          <TabButton
+            active={activeTab === 'cricket'}
+            onClick={() => setActiveTab('cricket')}
+            icon={<Dices className="w-5 h-5" />}
+            label="Cricket"
           />
         </div>
       </nav>

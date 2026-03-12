@@ -6,17 +6,17 @@ import type { Player } from '../lib/storage';
 export function PlayerManager({ players, onPlayerAdded }: { players: Player[], onPlayerAdded: () => void }) {
     const [name, setName] = useState('');
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!name.trim()) return;
-        addPlayer(name.trim());
+        await addPlayer(name.trim());
         setName('');
         onPlayerAdded();
     };
 
-    const handleDelete = (id: string, playerName: string) => {
+    const handleDelete = async (id: string, playerName: string) => {
         if (confirm(`Veux-tu vraiment supprimer ${playerName} ?`)) {
-            if (deletePlayer(id)) {
+            if (await deletePlayer(id)) {
                 onPlayerAdded(); // repurpose to just refresh
             }
         }

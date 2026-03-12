@@ -71,7 +71,7 @@ export function MatchEntry({
 
     const isFormValid = selectedPlayerIds.length >= 2 && selectedPlayerIds.every(id => ranks[id] !== undefined && ranks[id] >= 1);
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         if (!isFormValid) return;
         const matchData: MatchInputPlayer[] = selectedPlayerIds.map(id => ({
             playerId: id,
@@ -80,9 +80,9 @@ export function MatchEntry({
         }));
 
         if (editingMatch) {
-            editMatch(editingMatch.id, matchData);
+            await editMatch(editingMatch.id, matchData);
         } else {
-            recordMatch(matchData);
+            await recordMatch(matchData);
         }
         onMatchRecorded();
     };
@@ -123,8 +123,8 @@ export function MatchEntry({
                                 key={p.id}
                                 onClick={() => togglePlayer(p.id)}
                                 className={`flex items-center gap-2 px-4 py-3 rounded-2xl border transition-all active:scale-95 text-sm font-bold shadow-sm ${isSelected
-                                        ? 'bg-indigo-600 border-indigo-500 text-white shadow-indigo-900/50'
-                                        : 'bg-slate-900 border-slate-700/50 text-slate-400 hover:text-slate-200'
+                                    ? 'bg-indigo-600 border-indigo-500 text-white shadow-indigo-900/50'
+                                    : 'bg-slate-900 border-slate-700/50 text-slate-400 hover:text-slate-200'
                                     }`}
                             >
                                 {isSelected ? <CheckCircle2 className="w-4 h-4" /> : <Circle className="w-4 h-4" />}

@@ -1,3 +1,4 @@
+import { supabase } from "./supabase";
 import { calculateMatchElo } from "./elo";
 import type { EloPlayerInput } from "./elo";
 
@@ -8,7 +9,7 @@ export interface Player {
     matchesPlayed: number;
     wins: number;
     pointsReceivedTotal: number;
-    lastTrend: number; // The variation from the last match
+    lastTrend: number;
 }
 
 export interface MatchPlayerResult {
@@ -22,41 +23,89 @@ export interface MatchPlayerResult {
 
 export interface Match {
     id: string;
-    date: string; // ISO string
+    date: string;
     players: MatchPlayerResult[];
 }
 
-const PLAYERS_KEY = "darts_players";
-const MATCHES_KEY = "darts_matches";
+export async function getPlayers(): Promise<Player[]> {
+    const { data, error } = await supabase
+        .from('players')
+        .select('*')
+        .order('elo', { ascending: false });
 
-export function getPlayers(): Player[] {
-    const data = localStorage.getItem(PLAYERS_KEY);
-    return data ? JSON.parse(data) : [];
+    if (error) {
+        console.error("Error fetching players:", error);
+        return [];
+    }
+
+    return data.map(p => ({
+        id: p.id,
+        name: p.name,
+        elo: p.elo,
+        matchesPlayed: p.matches_played,
+        wins: p.wins,
+        pointsReceivedTotal: p.points_total,
+        lastTrend: p.last_trend,
+    }));
 }
 
-export function savePlayers(players: Player[]) {
-    localStorage.setItem(PLAYERS_KEY, JSON.stringify(players));
-}
+export async function addPlayer(name: string): Promise<Player | null> {
+    const { data, error } = await supabase
+        .from('players')
+        .insert([{ name, elo: 1000, matches_played: 0, wins: 0, points_total: 0, last_trend: 0 }])
+        .select()
+        .single();
 
-export function addPlayer(name: string): Player {
-    const players = getPlayers();
-    const newPlayer: Player = {
-        id: crypto.randomUUID(),
-        name,
-        elo: 1000,
-        matchesPlayed: 0,
-        wins: 0,
-        pointsReceivedTotal: 0,
-        lastTrend: 0,
+    if (error) {
+        console.error("Error adding player:", error);
+        return null;
+    }
+
+    return {
+        id: data.id,
+        name: data.name,
+        elo: data.elo,
+        matchesPlayed: data.matches_played,
+        wins: data.wins,
+        pointsReceivedTotal: data.points_total,
+        lastTrend: data.last_trend,
     };
-    players.push(newPlayer);
-    savePlayers(players);
-    return newPlayer;
 }
 
-export function getMatches(): Match[] {
-    const data = localStorage.getItem(MATCHES_KEY);
-    return data ? JSON.parse(data) : [];
+export async function getMatches(): Promise<Match[]> {
+    const { data, error } = await supabase
+        .from('matches')
+        .select(`
+            id,
+            date,
+            match_results (
+                player_id,
+                rank,
+                score,
+                elo_ancien,
+                variation,
+                elo_nouveau
+            )
+        `)
+        .order('date', { ascending: false });
+
+    if (error) {
+        console.error("Error fetching matches:", error);
+        return [];
+    }
+
+    return data.map((m: any) => ({
+        id: m.id,
+        date: m.date,
+        players: m.match_results.map((r: any) => ({
+            playerId: r.player_id,
+            rank: r.rank,
+            score: r.score,
+            eloAncien: r.elo_ancien,
+            variationTotale: r.variation,
+            eloNouveau: r.elo_nouveau,
+        })),
+    }));
 }
 
 export interface MatchInputPlayer {
@@ -65,10 +114,9 @@ export interface MatchInputPlayer {
     score: number;
 }
 
-export function recordMatch(inputPlayers: MatchInputPlayer[]) {
-    const players = getPlayers();
+export async function recordMatch(inputPlayers: MatchInputPlayer[]) {
+    const players = await getPlayers();
 
-    // Prepare input for Elo calculator
     const eloInputs: EloPlayerInput[] = inputPlayers.map(ip => {
         const p = players.find(p => p.id === ip.playerId);
         if (!p) throw new Error(`Player ${ip.playerId} not found`);
@@ -79,136 +127,188 @@ export function recordMatch(inputPlayers: MatchInputPlayer[]) {
         };
     });
 
-    // Calculate new Elos
     const eloOutputs = calculateMatchElo(eloInputs);
 
-    // Construct match record
-    const matchResults: MatchPlayerResult[] = inputPlayers.map(ip => {
+    // 1. Insert Match
+    const { data: matchData, error: matchError } = await supabase
+        .from('matches')
+        .insert([{}])
+        .select()
+        .single();
+
+    if (matchError) throw matchError;
+
+    // 2. Insert Match Results
+    const resultsToInsert = inputPlayers.map(ip => {
         const out = eloOutputs.find(o => o.id === ip.playerId)!;
         return {
-            playerId: ip.playerId,
+            match_id: matchData.id,
+            player_id: ip.playerId,
             rank: ip.rank,
             score: ip.score,
-            eloAncien: out.eloAncien,
-            variationTotale: out.variationTotale,
-            eloNouveau: out.eloNouveau,
+            elo_ancien: out.eloAncien,
+            variation: out.variationTotale,
+            elo_nouveau: out.eloNouveau,
         };
     });
 
-    const newMatch: Match = {
-        id: crypto.randomUUID(),
-        date: new Date().toISOString(),
-        players: matchResults
-    };
+    const { error: resultsError } = await supabase
+        .from('match_results')
+        .insert(resultsToInsert);
 
-    const matches = getMatches();
-    matches.push(newMatch);
-    localStorage.setItem(MATCHES_KEY, JSON.stringify(matches));
+    if (resultsError) throw resultsError;
 
-    // Update players stats
-    for (const result of matchResults) {
-        const p = players.find(p => p.id === result.playerId);
+    // 3. Update Players Stats
+    for (const result of resultsToInsert) {
+        const p = players.find(p => p.id === result.player_id);
         if (p) {
-            p.elo = result.eloNouveau;
-            p.matchesPlayed += 1;
-            if (result.rank === 1) p.wins += 1;
-            p.pointsReceivedTotal += result.score;
-            p.lastTrend = result.variationTotale;
+            const { error: pError } = await supabase
+                .from('players')
+                .update({
+                    elo: result.elo_nouveau,
+                    matches_played: p.matchesPlayed + 1,
+                    wins: p.wins + (result.rank === 1 ? 1 : 0),
+                    points_total: p.pointsReceivedTotal + result.score,
+                    last_trend: result.variation
+                })
+                .eq('id', result.player_id);
+
+            if (pError) console.error("Error updating player stats:", pError);
         }
     }
-
-    savePlayers(players);
 }
 
-export function deletePlayer(playerId: string): boolean {
-    const players = getPlayers();
-    const player = players.find(p => p.id === playerId);
-    if (!player || player.matchesPlayed > 0) return false; // Cannot delete if played
+export async function deletePlayer(playerId: string): Promise<boolean> {
+    // Check if player has matches
+    const { count, error: countError } = await supabase
+        .from('match_results')
+        .select('*', { count: 'exact', head: true })
+        .eq('player_id', playerId);
 
-    const newPlayers = players.filter(p => p.id !== playerId);
-    savePlayers(newPlayers);
+    if (countError) {
+        console.error("Error checking player matches:", countError);
+        return false;
+    }
+
+    if (count && count > 0) return false;
+
+    const { error } = await supabase
+        .from('players')
+        .delete()
+        .eq('id', playerId);
+
+    if (error) {
+        console.error("Error deleting player:", error);
+        return false;
+    }
+
     return true;
 }
 
-export function recalculateAllElos() {
-    const players = getPlayers();
-    const matches = getMatches();
+export async function recalculateAllElos() {
+    const { data: playersData, error: pError } = await supabase.from('players').select('*');
+    if (pError) throw pError;
 
-    // Reset all stats
-    players.forEach(p => {
-        p.elo = 1000;
-        p.matchesPlayed = 0;
-        p.wins = 0;
-        p.pointsReceivedTotal = 0;
-        p.lastTrend = 0;
-    });
+    const { data: matchesData, error: mError } = await supabase
+        .from('matches')
+        .select(`
+            id,
+            date,
+            match_results (
+                id,
+                player_id,
+                rank,
+                score
+            )
+        `)
+        .order('date', { ascending: true });
 
-    // Replay chronological matches
-    matches.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    if (mError) throw mError;
 
-    for (const match of matches) {
-        // prepare input
-        const eloInputs: import('./elo').EloPlayerInput[] = match.players.map(mp => {
-            const p = players.find(p => p.id === mp.playerId);
+    const players = playersData.map(p => ({
+        id: p.id,
+        name: p.name,
+        elo: 1000,
+        matchesPlayed: 0,
+        wins: 0,
+        pointsTotal: 0,
+        lastTrend: 0
+    }));
+
+    for (const match of matchesData) {
+        const eloInputs: EloPlayerInput[] = match.match_results.map((mp: any) => {
+            const p = players.find(p => p.id === mp.player_id);
             if (!p) throw new Error("Player missing during recalculation");
             return { id: p.id, eloAncien: p.elo, rang: mp.rank };
         });
 
-        // We can't use simple import here because of circular dependency resolution in this specific file structure without refactoring.
-        // However, calculateMatchElo is exported. I should add `import { calculateMatchElo } from './elo'` at the top. It is already imported at the top!
-        // But since it's already imported at the top, I can just use calculateMatchElo directly.
         const eloOutputs = calculateMatchElo(eloInputs);
 
-        // Update match with new calculations
-        match.players = match.players.map(mp => {
-            const out = eloOutputs.find(o => o.id === mp.playerId)!;
-            return {
-                ...mp,
-                eloAncien: out.eloAncien,
-                variationTotale: out.variationTotale,
-                eloNouveau: out.eloNouveau
-            };
-        });
+        for (const out of eloOutputs) {
+            const mp = match.match_results.find((r: any) => r.player_id === out.id)!;
 
-        // Update players
-        for (const result of match.players) {
-            const p = players.find(p => p.id === result.playerId);
-            if (p) {
-                p.elo = result.eloNouveau;
-                p.matchesPlayed += 1;
-                if (result.rank === 1) p.wins += 1;
-                p.pointsReceivedTotal += result.score;
-                p.lastTrend = result.variationTotale;
-            }
+            // Update match_result in DB
+            await supabase
+                .from('match_results')
+                .update({
+                    elo_ancien: out.eloAncien,
+                    variation: out.variationTotale,
+                    elo_nouveau: out.eloNouveau
+                })
+                .eq('id', mp.id);
+
+            // Update local player state for next match iteration
+            const p = players.find(p => p.id === out.id)!;
+            p.elo = out.eloNouveau;
+            p.matchesPlayed += 1;
+            if (mp.rank === 1) p.wins += 1;
+            p.pointsTotal += mp.score;
+            p.lastTrend = out.variationTotale;
         }
     }
 
-    savePlayers(players);
-    localStorage.setItem(MATCHES_KEY, JSON.stringify(matches));
+    // Push final player states to DB
+    for (const p of players) {
+        await supabase
+            .from('players')
+            .update({
+                elo: p.elo,
+                matches_played: p.matchesPlayed,
+                wins: p.wins,
+                points_total: p.pointsTotal,
+                last_trend: p.lastTrend
+            })
+            .eq('id', p.id);
+    }
 }
 
-export function deleteMatch(matchId: string) {
-    const matches = getMatches();
-    const filteredMatches = matches.filter(m => m.id !== matchId);
-    localStorage.setItem(MATCHES_KEY, JSON.stringify(filteredMatches));
-    recalculateAllElos();
+export async function deleteMatch(matchId: string) {
+    const { error } = await supabase
+        .from('matches')
+        .delete()
+        .eq('id', matchId);
+
+    if (error) throw error;
+    await recalculateAllElos();
 }
 
-export function editMatch(matchId: string, inputPlayers: MatchInputPlayer[]) {
-    const matches = getMatches();
-    const matchIndex = matches.findIndex(m => m.id === matchId);
-    if (matchIndex === -1) return;
+export async function editMatch(matchId: string, inputPlayers: MatchInputPlayer[]) {
+    // 1. Delete old results
+    await supabase.from('match_results').delete().eq('match_id', matchId);
 
-    // We temporarily update with raw data (Elo will be fixed by recalculate)
-    matches[matchIndex].players = inputPlayers.map(ip => ({
-        playerId: ip.playerId,
+    // 2. Insert new "raw" results (temporary, recalculateAllElos fixes Elos)
+    const results = inputPlayers.map(ip => ({
+        match_id: matchId,
+        player_id: ip.playerId,
         rank: ip.rank,
         score: ip.score,
-        eloAncien: 0,
-        variationTotale: 0,
-        eloNouveau: 0
+        elo_ancien: 0,
+        variation: 0,
+        elo_nouveau: 0,
     }));
 
-    localStorage.setItem(MATCHES_KEY, JSON.stringify(matches));
-    recalculateAllElos();
+    await supabase.from('match_results').insert(results);
+
+    // 3. Trigger global recalc
+    await recalculateAllElos();
 }

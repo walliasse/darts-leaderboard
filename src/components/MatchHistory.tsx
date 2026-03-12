@@ -13,9 +13,9 @@ export function MatchHistory({
     onRefresh: () => void,
     onEdit: (match: Match) => void
 }) {
-    const handleDelete = (matchId: string) => {
+    const handleDelete = async (matchId: string) => {
         if (confirm("Supprimer ce match et recalculer tout l'Elo ?")) {
-            deleteMatch(matchId);
+            await deleteMatch(matchId);
             onRefresh();
         }
     };
