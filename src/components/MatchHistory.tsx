@@ -1,6 +1,8 @@
-import { Trash2, Edit2, Calendar, History } from 'lucide-react';
+import { useState } from 'react';
+import { Trash2, Edit2, Calendar, History, TrendingUp, List } from 'lucide-react';
 import { deleteMatch } from '../lib/storage';
 import type { Match, Player } from '../lib/storage';
+import { MatchHistoryChart } from './MatchHistoryChart';
 
 export function MatchHistory({
     matches,
@@ -13,6 +15,8 @@ export function MatchHistory({
     onRefresh: () => void,
     onEdit: (match: Match) => void
 }) {
+    const [view, setView] = useState<'list' | 'chart'>('list');
+
     const handleDelete = async (matchId: string) => {
         if (confirm("Supprimer ce match et recalculer tout l'Elo ?")) {
             await deleteMatch(matchId);
@@ -22,22 +26,47 @@ export function MatchHistory({
 
     const sortedMatches = [...matches].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-    if (sortedMatches.length === 0) {
-        return (
-            <div className="flex flex-col items-center justify-center p-8 text-center text-slate-400 h-full mt-20">
-                <History className="w-12 h-12 mb-4 text-slate-600" />
-                <p>Aucun match joué.</p>
-                <p className="text-sm mt-1">Allez dans "Nouveau" pour démarrer.</p>
-            </div>
-        );
-    }
-
     return (
-        <div className="p-4 space-y-3 pb-24 h-full">
-            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3 px-2 flex items-center justify-between mt-2">
-                <span>Historique complet</span>
-                <span className="bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full">{sortedMatches.length}</span>
-            </h3>
+        <div className="p-4 flex flex-col h-full overflow-hidden">
+            <div className="flex bg-slate-900 border border-slate-800 rounded-xl p-1 shrink-0 mb-4 mx-auto w-full max-w-sm">
+                <button
+                    onClick={() => setView('list')}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${
+                        view === 'list' 
+                            ? 'bg-slate-800 text-white shadow-sm' 
+                            : 'text-slate-500 hover:text-slate-300'
+                    }`}
+                >
+                    <List className="w-4 h-4" />
+                    Complet
+                </button>
+                <button
+                    onClick={() => setView('chart')}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${
+                        view === 'chart' 
+                            ? 'bg-slate-800 text-white shadow-sm' 
+                            : 'text-slate-500 hover:text-slate-300'
+                    }`}
+                >
+                    <TrendingUp className="w-4 h-4" />
+                    Graphiques
+                </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto pb-24">
+            {view === 'list' ? (
+                sortedMatches.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center p-8 text-center text-slate-400 h-full mt-20">
+                        <History className="w-12 h-12 mb-4 text-slate-600" />
+                        <p>Aucun match joué.</p>
+                        <p className="text-sm mt-1">Allez dans "Nouveau" pour démarrer.</p>
+                    </div>
+                ) : (
+                    <div className="space-y-3">
+                        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3 px-2 flex items-center justify-between mt-2">
+                            <span>Historique complet</span>
+                            <span className="bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full">{sortedMatches.length}</span>
+                        </h3>
 
             {sortedMatches.map(match => {
                 const date = new Date(match.date);
@@ -92,6 +121,12 @@ export function MatchHistory({
                     </div>
                 );
             })}
+                    </div>
+                )
+            ) : (
+                <MatchHistoryChart matches={matches} players={players} />
+            )}
+            </div>
         </div>
     );
 }
